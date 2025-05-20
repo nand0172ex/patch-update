@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "2.2",
+  "description": "RHEL 8 Safe Patch Lifecycle - No Reboot",
+  "mainSteps": [
+    {
+      "action": "aws:runDocument",
+      "name": "RunPatchBaseline",
+      "inputs": {
+        "documentType": "Command",
+        "documentPath": "AWS-RunPatchBaseline",
+        "documentParameters": {
+          "Operation": "Install",
+          "RebootOption": "NoReboot"
+        }
+      }
+    },
+    {
+      "action": "aws:runCommand",
+      "name": "CheckPatchStatus",
+      "inputs": {
+        "DocumentName": "AWS-RunShellScript",
+        "Parameters": {
+          "commands": [
+            "echo '[Step 2] Verifying patch status...'",
+            "dnf updateinfo list installed || echo 'No updateinfo plugin installed or no updates applied.'"
+          ]
+        }
+      }
+    },
+    {
+      "action": "aws:runCommand",
+      "name": "CheckRebootNeeded",
+      "inputs": {
+        "DocumentName": "AWS-RunShellScript",
+        "Parameters": {
+          "commands": [
+            "echo '[Step 3] Checking if reboot is required (but not rebooting)...'",
+            "dnf install -y dnf-utils || echo 'dnf-utils already installed'",
+            "if dnf needs-restarting -r; then",
+            "  echo '🔴 Reboot required - Manual reboot advised after testing.' | tee -a /var/log/patch-check.log",
+            "else",
+            "  echo '✅ No reboot needed.' | tee -a /var/log/patch-check.log",
+            "fi"
+          ]
+        }
+      }
+    }
+  ]
+}
