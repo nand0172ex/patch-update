@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Product Orders Tree</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <!-- Tabulator CSS -->
+    <link href="https://unpkg.com/tabulator-tables@5.4.4/dist/css/tabulator.min.css" rel="stylesheet" />
+    <!-- jQuery JSON Viewer CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jquery.json-viewer/json-viewer/jquery.json-viewer.css">
+
+    <style>
+        #orderItemModal .modal-dialog,
+        #somOrderModal .modal-dialog {
+            max-width: 90vw;
+            max-height: 90vh;
+        }
+
+        .modal-body {
+            height: 70vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body class="p-4">
+    <div class="container mt-4">
+        <h2>Product Orders</h2>
+        <table class="table table-striped">
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+
+        <!-- Order Item Modal -->
+        <div class="modal fade" id="orderItemModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Product Order Item Tree</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="orderItemTree"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SOM Tree Modal -->
+        <div class="modal fade" id="somOrderModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">SOM Order Tree</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="somOrderTree" class="mb-4"></div>
+
+                        <!-- JSON Pretty Viewer Search + Viewer -->
+                        <div style="flex:1;">
+                            <div class="mb-2">
+                                <!-- <button id="clearJsonHighlight" class="btn btn-sm btn-secondary mt-1">Clear
+                                    Highlight</button> -->
+                                <!-- <span class="json-key">"state"</span> -->
+                                <!-- <input id="jsonKeySearch" type="text" class="form-control" 
+                                    placeholder="Search JSON key..." list="jsonKeySuggestions"> -->
+                                <datalist id="jsonKeySuggestions"></datalist>
+                            </div>
+                            <pre id="jsonViewer"
+                                style="background:#f9f9f9; padding:1rem; overflow:auto; max-height:70vh; border:1px solid #ccc;"></pre>
+                        </div>
+
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/tabulator-tables@5.4.4/dist/js/tabulator.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery.json-viewer/json-viewer/jquery.json-viewer.js"></script>
+
+
+    <script>
+        const columns = [
+            'id',
+            'href',
+            'description',
+            'state',
+            'orderDate',
+            'priceDate',
+            'lastUpdateDate',
+            'completionDate',
+            'requestedCompletionDate',
+            'isCustomerVisible',
+            'billingAccount.id',
+            'billingAccount.ratingType',
+            'channel',
+            'Customer',
+            'SOLO',
+            'SOM'
+        ];
+
+        const jsonFiles = [
+            'data/aohCompleted.json',
+            'data/aohFallout.json',
+            'data/aohInProgress.json',
+            'data/aohSubmitted.json'
+        ];
+
+        function getNestedValue(obj, path) {
+            return path.split('.').reduce((acc, part) => {
+                if (acc && acc[part] !== undefined && acc[part] !== null) {
+                    return acc[part];
+                }
+                return null;
+            }, obj);
+        }
+
+
+
+        function showOrderItemTree(orderItems) {
+            function buildTree(items) {
+                return items.map(item => ({
+                    id: item.id,
+                    action: item.action,
+                    state: item.state,
+                    children: Array.isArray(item.productOrderItem) ? buildTree(item.productOrderItem) : []
+                }));
+            }
+
+            const treeData = buildTree(orderItems);
+
+            if (window.orderItemTabulator) {
+                window.orderItemTabulator.destroy();
+            }
+
+            window.orderItemTabulator = new Tabulator("#orderItemTree", {
+                data: treeData,
+                layout: "fitColumns",
+                dataTree: true,
+                dataTreeStartExpanded: false,
+                columns: [
+                    { title: "ID", field: "id", headerFilter: "input" },
+                    { title: "Action", field: "action", headerFilter: "input" },
+                    { title: "State", field: "state", headerFilter: "input" },
+                ],
+            });
+        }
+
+        function showSomOrderTree(productOrderItems) {
+            function buildTree(items) {
+                return items.map(item => {
+                    const node = {
+                        id: item.id,
+                        action: item.action,
+                        state: item.state,
+                    };
+                    if (Array.isArray(item.productOrderItem)) {
+                        node.children = buildTree(item.productOrderItem);
+                    }
+                    return node;
+                });
+            }
+
+            const treeData = buildTree(productOrderItems || []);
+
+            // Destroy old Tabulator if exists
+            if (window.somTabulator) {
+                window.somTabulator.destroy();
+            }
+
+            // Create new Tabulator
+            window.somTabulator = new Tabulator("#somOrderTree", {
+                data: treeData,
+                layout: "fitColumns",
+                dataTree: true,
+                dataTreeStartExpanded: false,
+                columns: [
+                    { title: "ID", field: "id", headerFilter: "input" },
+                    { title: "Action", field: "action", headerFilter: "input" },
+                    { title: "State", field: "state", headerFilter: "input" },
+                ],
+            });
+        }
+
+        function extractJsonKeys(obj, prefix = '', keys = new Set()) {
+            if (typeof obj === 'object' && obj !== null) {
+                for (const key in obj) {
+                    const fullKey = prefix ? `${prefix}.${key}` : key;
+                    keys.add(fullKey);
+                    extractJsonKeys(obj[key], fullKey, keys);
+                }
+            }
+            return keys;
+        }
+
+
+
+        Promise.all(jsonFiles.map(file => fetch(file).then(res => res.json())))
+            .then(results => {
+                const combinedData = results.flat();
+
+                const thead = document.getElementById('tableHead');
+                const headerRow = document.createElement('tr');
+                columns.forEach(col => {
+                    const th = document.createElement('th');
+                    th.textContent = col;
+                    headerRow.appendChild(th);
+                });
+                thead.appendChild(headerRow);
+
+                const tbody = document.getElementById('tableBody');
+                combinedData.forEach(item => {
+                    const row = document.createElement('tr');
+
+                    columns.forEach(col => {
+                        let value = getNestedValue(item, col);
+
+                        if (col === 'channel' && Array.isArray(value)) {
+                            value = value.map(ch => ch.id || '').join(', ');
+                        }
+
+                        if (col === 'Customer') {
+                            const val = Array.isArray(item.relatedParty)
+                                ? item.relatedParty.map(re => re.id).filter(Boolean).join(', ')
+                                : '';
+                            value = val;
+                        }
+
+                        if (col === 'SOLO') {
+                            const solo = item.externalIdentifier?.find(ei =>
+                                ei['@type'] === 'SOLORequestId' || ei.externalIdentifierType === 'SOLORequestId');
+                            value = solo?.id || '';
+                        }
+
+                        if (col === 'SOM') {
+                            const som = item.productOrderItem?.[0]?.externalIdentifier?.find(ei =>
+                                ei['@type'] === 'SOMOrderID');
+                            value = som?.id || '';
+                        }
+
+                        if (value && typeof value === 'string' && col.toLowerCase().includes('date')) {
+                            value = new Date(value).toLocaleString();
+                        }
+
+                        if (typeof value === 'boolean') {
+                            value = value ? 'true' : 'false';
+                        }
+
+                        if (value === null || value === undefined) {
+                            value = '';
+                        }
+
+                        if (col === 'href' && value) {
+                            value = `<a href="${value}" target="_blank">Link</a>`;
+                        }
+
+                        if (col === 'id' && value) {
+                            value = `<a href="#" class="open-order-items" data-id="${item.id}">${item.id}</a>`;
+                        }
+
+                        if (col === 'SOM' && value) {
+                            value = `<a href="#" class="open-som-tree" data-som="${value}">${value}</a>`;
+                        }
+
+                        const td = document.createElement('td');
+                        td.innerHTML = value;
+                        row.appendChild(td);
+                    });
+
+                    tbody.appendChild(row);
+                });
+
+                // ID click: Show productOrderItem tree
+                document.querySelectorAll('.open-order-items').forEach(link => {
+                    link.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        const clickedId = this.dataset.id;
+                        const order = combinedData.find(o => o.id === clickedId);
+                        if (order?.productOrderItem?.length) {
+                            showOrderItemTree(order.productOrderItem);
+                        } else {
+                            document.getElementById('orderItemTree').innerHTML = '<p>No product order items found.</p>';
+                        }
+                        bootstrap.Modal.getOrCreateInstance(document.getElementById('orderItemModal')).show();
+                    });
+                });
+
+
+                // SOM click: Show all_som.json tree
+                document.querySelectorAll('.open-som-tree').forEach(link => {
+                    link.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        const somId = this.dataset.som;
+
+                        fetch('data/all_som.json')
+                            .then(res => res.json())
+                            .then(somData => {
+                                const match = somData.find(d => d.id === somId);
+                                if (match && match.productOrderItem) {
+                                    showSomOrderTree(match.productOrderItem);
+                                    $('#jsonViewer').jsonViewer(match, { collapsed: true });
+
+                                    // Extract all keys for suggestions
+                                    const keys = Array.from(extractJsonKeys(match)).sort();
+                                    const datalist = document.getElementById('jsonKeySuggestions');
+                                    datalist.innerHTML = keys.map(k => `<option value="${k}">`).join('');
+
+                                } else {
+                                    document.getElementById('somOrderTree').innerHTML = '<p>No matching SOM data found or no productOrderItem.</p>';
+                                    document.getElementById('jsonViewer').innerHTML = '';
+                                }
+                                bootstrap.Modal.getOrCreateInstance(document.getElementById('somOrderModal')).show();
+                            })
+                            .catch(err => console.error("Failed to load SOM data:", err));
+                    });
+                });
+            })
+            .catch(err => console.error("Error loading order data:", err));
+        // Search JSON keys
+        document.getElementById('jsonKeySearch').addEventListener('change', function () {
+            const fullKey = this.value.trim().replace(/^"|"$/g, '');
+            const keys = fullKey.split('.');  // Split nested keys
+
+            const viewer = document.getElementById('jsonViewer');
+
+            // Clear previous highlights
+            viewer.querySelectorAll('.json-key').forEach(el => {
+                el.style.backgroundColor = '';
+                el.style.color = '';
+            });
+
+            // Function to recursively check if node path contains keys in order
+            function highlightKeys(keys) {
+                let currentElements = Array.from(viewer.querySelectorAll('.json-key'));
+                for (const key of keys) {
+                    currentElements = currentElements.filter(el =>
+                        el.textContent.replace(/^"|"$/g, '') === key
+                    );
+                    if (currentElements.length === 0) break;
+                }
+                currentElements.forEach(el => {
+                    el.style.backgroundColor = '#ffff00';
+                    el.style.color = '#000';
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                });
+                return currentElements.length > 0;
+            }
+
+            if (!highlightKeys(keys)) {
+                alert(`Key "${fullKey}" not found in the JSON.`);
+            }
+        });
+
+
+
+        document.getElementById('clearJsonHighlight').addEventListener('click', () => {
+            const viewer = document.getElementById('jsonViewer');
+            viewer.querySelectorAll('.json-key').forEach(el => {
+                el.style.backgroundColor = '';
+                el.style.color = '';
+            });
+        });
+
+    </script>
+</body>
+
+</html>
